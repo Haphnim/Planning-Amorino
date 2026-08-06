@@ -9,6 +9,34 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+`planning.db` est déjà fourni pré-rempli avec l'historique importé depuis
+`PLANNING_AMORINO_BESANCON.xlsx` (voir section Migration ci-dessous). Place-le
+simplement à côté de `app.py` avant de lancer l'appli, ou relance la migration
+toi-même.
+
+## Migration depuis l'Excel
+
+```bash
+python migrate_from_excel.py chemin/vers/PLANNING_AMORINO_BESANCON.xlsx
+```
+
+5 semaines ont été importées automatiquement (dates fiables trouvées dans le
+fichier) : **29/06, 20/07, 27/07, 03/08, 10/08/2026**.
+
+3 feuilles ont été volontairement exclues, à traiter à la main si besoin :
+- **Feuil2** : couvre la même semaine que "20 AU 26" (20-26 juillet), doublon
+  probable, brouillon non retenu.
+- **Feuil1, Feuil5, Feuil6** : aucune date nulle part dans la feuille, et tous
+  les créneaux sont remplis en continu de 11h à 01h pour chaque salarié
+  (amplitude de 18h), ce qui n'est pas un planning réel. Ce sont très
+  probablement des **gabarits vierges** copiés-collés comme base de départ,
+  pas des semaines travaillées. Si l'une d'elles correspond en fait à une
+  vraie semaine, dis-moi laquelle et je fais l'import manuel correspondant.
+
+Le script est idempotent : le relancer sur la même base ne duplique pas les
+créneaux déjà importés (vérification par salarié/jour/type/horaires avant
+insertion).
+
 ## Déploiement sur Streamlit Community Cloud (déjà utilisé pour DAX/SAP Toolkit BU Parts)
 
 1. Pousser ce dossier (`app.py`, `requirements.txt`) sur un repo GitHub.
