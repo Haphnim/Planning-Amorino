@@ -1,0 +1,3 @@
+# Copier ce fichier en secrets.toml (dans ce meme dossier .streamlit/) et
+# changer le mot de passe avant tout partage reel de l'application.
+RESPONSABLE_PASSWORD = "change-moi"
