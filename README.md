@@ -1,6 +1,9 @@
 # Planning Amorino Besançon
 
-Application Streamlit qui remplace le fichier Excel de planning.
+Application Streamlit qui remplace le fichier Excel de planning : couleurs et
+logo Amorino, planning salarié en 2 clics, vue journée façon planning mural
+avec glisser-déposer, jauge d'effectifs par créneau pour repérer les trous en
+heures de rush.
 
 ## Lancer en local
 
@@ -9,10 +12,37 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-`planning.db` est déjà fourni pré-rempli avec l'historique importé depuis
-`PLANNING_AMORINO_BESANCON.xlsx` (voir section Migration ci-dessous). Place-le
-simplement à côté de `app.py` avant de lancer l'appli, ou relance la migration
-toi-même.
+`planning.db` est fourni pré-rempli avec l'historique importé depuis
+`PLANNING_AMORINO_BESANCON.xlsx` (5 semaines datées, voir plus bas) et des
+objectifs d'effectif par défaut (2 personnes en creux, 3 en heures de repas
+12h-14h et 18h-01h — **à ajuster** dans l'onglet "Réglages effectifs" selon le
+vrai rythme du point de vente). Place ce fichier à côté de `app.py`.
+
+## Ce qui a changé par rapport à la v1
+
+- **Identité visuelle Amorino** : palette terracotta/crème/brun reprise de la
+  charte de marque officielle, logo maison en forme de rose de gelato (à
+  remplacer par le vrai logo si tu as le fichier — voir `LOGO_SVG` dans
+  `app.py`, ou passer par `st.image("logo.png")` dans `afficher_entete()`).
+- **Connexion salarié en 2 clics** : écran d'accueil avec deux grandes cartes
+  "Je suis salarié" / "Je suis responsable", puis tuiles avec les prénoms
+  (un tap = le planning s'affiche).
+- **Vue journée avec glisser-déposer** (`streamlit-calendar` / FullCalendar,
+  vue "resourceTimeline") : chaque salarié est une ligne, les créneaux sont
+  des blocs qu'on peut faire glisser pour changer l'horaire ou déposer sur
+  une autre ligne pour réattribuer à un autre salarié. Clic-glisser sur une
+  zone vide pour créer un créneau directement au bon endroit.
+- **Jauge d'effectifs par tranche de 30 min** au-dessus de la vue journée :
+  vert si l'effectif atteint l'objectif défini, orange proche, rouge en
+  dessous. Les objectifs se règlent dans "Réglages effectifs".
+
+### Limite connue : FullCalendar Scheduler (vue ressources)
+
+La vue journée utilise le plugin "Scheduler" de FullCalendar (nécessaire pour
+afficher un salarié par ligne). `streamlit-calendar` l'active par défaut avec
+la licence gratuite `CC-Attribution-NonCommercial-NoDerivatives`, adaptée à un
+usage interne comme celui-ci. Si Amorino en fait un usage commercial plus
+large un jour, voir https://fullcalendar.io/license pour une licence payante.
 
 ## Migration depuis l'Excel
 
@@ -20,56 +50,31 @@ toi-même.
 python migrate_from_excel.py chemin/vers/PLANNING_AMORINO_BESANCON.xlsx
 ```
 
-5 semaines ont été importées automatiquement (dates fiables trouvées dans le
-fichier) : **29/06, 20/07, 27/07, 03/08, 10/08/2026**.
+5 semaines importées automatiquement : **29/06, 20/07, 27/07, 03/08,
+10/08/2026**. 3 feuilles exclues (doublon "Feuil2" et gabarits vierges
+"Feuil1/5/6" sans date) — voir la sortie du script pour le détail, ou
+redemande-moi si l'une d'elles correspond en fait à une semaine réelle.
 
-3 feuilles ont été volontairement exclues, à traiter à la main si besoin :
-- **Feuil2** : couvre la même semaine que "20 AU 26" (20-26 juillet), doublon
-  probable, brouillon non retenu.
-- **Feuil1, Feuil5, Feuil6** : aucune date nulle part dans la feuille, et tous
-  les créneaux sont remplis en continu de 11h à 01h pour chaque salarié
-  (amplitude de 18h), ce qui n'est pas un planning réel. Ce sont très
-  probablement des **gabarits vierges** copiés-collés comme base de départ,
-  pas des semaines travaillées. Si l'une d'elles correspond en fait à une
-  vraie semaine, dis-moi laquelle et je fais l'import manuel correspondant.
-
-Le script est idempotent : le relancer sur la même base ne duplique pas les
-créneaux déjà importés (vérification par salarié/jour/type/horaires avant
-insertion).
-
-## Déploiement sur Streamlit Community Cloud (déjà utilisé pour DAX/SAP Toolkit BU Parts)
-
-1. Pousser ce dossier (`app.py`, `requirements.txt`) sur un repo GitHub.
-2. Sur share.streamlit.io, "New app" en pointant vers ce repo, fichier `app.py`.
-3. Dans les Settings de l'app > Secrets, ajouter :
-   ```toml
-   RESPONSABLE_PASSWORD = "votre_mot_de_passe_ici"
-   ```
-   Sans ça, l'app utilise le mot de passe par défaut défini dans le code
-   (`DEFAULT_RESPONSABLE_PASSWORD`), à changer avant tout partage réel.
+Le script est idempotent : le relancer ne duplique pas les créneaux déjà
+importés.
 
 ## Limite importante : persistance des données
 
-La base est un fichier SQLite (`planning.db`) créé automatiquement au premier
-lancement. Sur Streamlit Community Cloud, ce fichier est perdu à chaque
-redémarrage du conteneur (mise en veille après inactivité, redeploy, etc.).
-
-Deux options pour une vraie persistance en production :
-1. **Supabase** (Postgres gratuit) : remplacer les fonctions de la section
-   "COUCHE DONNEES" dans `app.py` par des appels psycopg2/SQLAlchemy. Le reste
-   de l'app (UI, calculs) ne change pas.
-2. **Export régulier** : utiliser le bouton Export Excel comme sauvegarde
-   manuelle en attendant une vraie base externe.
+SQLite sur Streamlit Community Cloud est perdu à chaque redémarrage du
+conteneur. Pour une vraie persistance en production, migrer vers Supabase
+(Postgres gratuit) en remplaçant les fonctions de la section "COUCHE DONNEES"
+dans `app.py` — le reste de l'app ne change pas.
 
 ## Rôles
 
-- **Salarié** : sélectionne son nom dans une liste, consulte uniquement son
-  planning (lecture seule).
-- **Responsable** : mot de passe requis, accès complet (ajout/modification/
-  suppression de créneaux, gestion des salariés, export Excel).
+- **Salarié** : sélectionne son prénom, consulte son planning en lecture
+  seule, avec le total d'heures de la semaine.
+- **Responsable** (mot de passe, `RESPONSABLE_PASSWORD` dans les secrets
+  Streamlit ou modifier `DEFAULT_RESPONSABLE_PASSWORD` dans `app.py`) : vue
+  journée drag & drop, vue semaine, ajout rapide, gestion salariés, réglages
+  d'effectifs, export Excel.
 
 ## Types de créneaux
 
-TRAVAIL (avec heure début/fin), REPOS, MALADIE, POSE, FORMATION.
-Un salarié sans REPOS enregistré sur la semaine déclenche une alerte visuelle
-dans la vue responsable (obligation légale de repos hebdomadaire).
+TRAVAIL (avec heure début/fin), REPOS, MALADIE, POSE, FORMATION. Un salarié
+sans REPOS sur la semaine déclenche une alerte dans la vue semaine.
