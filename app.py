@@ -478,6 +478,217 @@ def export_excel(df_semaine: pd.DataFrame, lundi: date) -> bytes:
     return buffer.read()
 
 
+# ============================== EXPORT IMPRIMABLE (pensé pour la gérante) ==============================
+
+JOURS_COURT = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+
+def _formater_cellule_jour(creneaux_jour_salarie):
+    """Construit le contenu HTML d'une cellule du tableau imprimable pour un
+    salarié et un jour donnés, à partir de ses créneaux ce jour-là."""
+    if creneaux_jour_salarie.empty:
+        return '<td>&nbsp;</td>'
+
+    types_presents = set(creneaux_jour_salarie["type"])
+
+    if types_presents == {"REPOS"}:
+        return '<td class="repos"><span class="libelle">REPOS</span></td>'
+    if "MALADIE" in types_presents:
+        return '<td class="maladie"><span class="horaire">MALADIE</span></td>'
+    if "POSE" in types_presents and "TRAVAIL" not in types_presents:
+        return '<td class="pose"><span class="horaire">CONGÉ</span></td>'
+    if "FORMATION" in types_presents and "TRAVAIL" not in types_presents:
+        return '<td class="formation"><span class="horaire">FORMATION</span></td>'
+
+    travail = creneaux_jour_salarie[creneaux_jour_salarie["type"] == "TRAVAIL"].sort_values("heure_debut")
+    if travail.empty:
+        return '<td>&nbsp;</td>'
+    morceaux = [
+        f'<span class="horaire">{r["heure_debut"]} → {r["heure_fin"]}</span>'
+        for _, r in travail.iterrows()
+    ]
+    return f'<td>{"".join(morceaux)}</td>'
+
+
+def generer_html_impression(lundi: date) -> str:
+    """Génère la page HTML imprimable (A4 paysage, une semaine, gros caractères,
+    hachures pour le repos afin de rester lisible même imprimée en noir et
+    blanc). Pensée pour être ouverte au clic, imprimée directement depuis le
+    navigateur (bouton intégré), ou envoyée telle quelle par SMS/mail."""
+    df_semaine = creneaux_semaine(lundi)
+    dimanche = lundi + timedelta(days=6)
+    jours = [lundi + timedelta(days=i) for i in range(7)]
+
+    if df_semaine.empty:
+        noms = []
+    else:
+        noms = sorted(df_semaine["salarie_nom"].unique())
+
+    resume_heures = total_heures_par_salarie(df_semaine)
+    heures_par_nom = dict(zip(resume_heures["salarie_nom"], resume_heures["heures_travaillees"])) if not resume_heures.empty else {}
+
+    lignes_html = []
+    for nom in noms:
+        cellules = []
+        for jour in jours:
+            sous_df = df_semaine[(df_semaine["salarie_nom"] == nom) & (df_semaine["jour"] == jour.isoformat())]
+            cellules.append(_formater_cellule_jour(sous_df))
+        total = heures_par_nom.get(nom, 0.0)
+        total_str = f"{total:.1f}".replace(".", ",")
+        lignes_html.append(f"""
+        <tr>
+          <td class="cell-nom">{nom.title()}</td>
+          {''.join(cellules)}
+          <td class="cell-total">{total_str}&nbsp;h</td>
+        </tr>""")
+
+    entetes_jours = "".join(
+        f'<th>{JOURS_COURT[i]}<br>{jour.strftime("%d/%m")}</th>' for i, jour in enumerate(jours)
+    )
+
+    return f"""<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Planning Amorino, semaine du {lundi.strftime('%d/%m/%Y')}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {{
+    --terracotta: #C97F3B; --terracotta-dark: #8C5220; --cream: #FDE8DC;
+    --brun: #6F2100; --repos: #C9BEB2; --maladie: #A8453C; --pose: #BD8F2C;
+    --formation: #74588A; --ligne: #D8C9B8; --papier: #FFFFFF; --fond: #EFE7DD;
+  }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    margin: 0; padding: 30px 16px; background: var(--fond);
+    font-family: 'Inter', system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+  }}
+  .bouton-imprimer {{
+    background: var(--terracotta); color: white; border: none; border-radius: 8px;
+    font-family: 'Inter', sans-serif; font-size: 15px; font-weight: 700;
+    padding: 12px 26px; margin-bottom: 18px; cursor: pointer;
+    box-shadow: 0 3px 10px rgba(140,82,32,0.3);
+  }}
+  .bouton-imprimer:hover {{ background: var(--terracotta-dark); }}
+  .feuille {{
+    background: var(--papier); width: 1123px; min-height: 700px;
+    padding: 44px 52px 36px 52px;
+    box-shadow: 0 8px 30px rgba(111,33,0,0.15), 0 2px 8px rgba(111,33,0,0.08);
+  }}
+  .entete {{ display: flex; justify-content: space-between; align-items: flex-start;
+    border-bottom: 3px solid var(--terracotta); padding-bottom: 18px; margin-bottom: 22px; }}
+  .entete-gauche {{ display: flex; align-items: center; gap: 16px; }}
+  .titre-boutique {{ font-family: 'Fraunces', serif; font-size: 30px; font-weight: 600;
+    color: var(--brun); margin: 0; line-height: 1.05; }}
+  .titre-semaine {{ font-family: 'Fraunces', serif; font-size: 16px; font-weight: 500;
+    color: var(--terracotta-dark); margin: 4px 0 0 0; }}
+  .case-maj {{ text-align: right; font-size: 12.5px; color: #8A7A68; line-height: 1.9; }}
+  .case-maj .ligne-remplir {{ display: inline-block; border-bottom: 1px solid #B0A28E;
+    min-width: 130px; margin-left: 6px; }}
+  .case-vu {{ display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+    margin-top: 10px; font-size: 12.5px; color: #8A7A68; }}
+  .case-vu .carre {{ width: 20px; height: 20px; border: 1.5px solid #B0A28E; border-radius: 3px; }}
+  table.planning {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
+  table.planning th {{ font-family: 'Inter', sans-serif; font-size: 13.5px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.04em; color: var(--papier);
+    background: var(--terracotta-dark); padding: 10px 6px; border: 1px solid var(--terracotta-dark); }}
+  table.planning th.col-salarie {{ text-align: left; padding-left: 14px; width: 130px; }}
+  table.planning th.col-total {{ width: 68px; }}
+  table.planning td {{ border: 1px solid var(--ligne); height: 64px; vertical-align: middle;
+    text-align: center; padding: 4px 6px; }}
+  td.cell-nom {{ text-align: left; padding-left: 14px; font-weight: 700; font-size: 15px;
+    color: var(--brun); background: var(--cream); border-right: 2px solid var(--terracotta); }}
+  td.cell-total {{ font-weight: 700; font-size: 14.5px; color: var(--brun); background: #FBF4EC; }}
+  .horaire {{ font-size: 14px; font-weight: 600; color: #3A2A1C; line-height: 1.35; }}
+  .horaire + .horaire {{ display: block; margin-top: 3px; padding-top: 3px; border-top: 1px dashed #D8C9B8; }}
+  td.repos {{ background: repeating-linear-gradient(135deg, #F1ECE4, #F1ECE4 6px, #E4DBCC 6px, #E4DBCC 12px); }}
+  td.repos .libelle {{ font-size: 11.5px; font-weight: 700; color: #8A7A68; letter-spacing: 0.03em; }}
+  td.maladie {{ background: #F7E9E7; }}
+  td.maladie .horaire {{ color: var(--maladie); font-weight: 700; font-size: 12.5px; }}
+  td.pose {{ background: #F7EFDC; }}
+  td.pose .horaire {{ color: var(--pose); font-weight: 700; font-size: 12.5px; }}
+  td.formation {{ background: #EFE9F2; }}
+  td.formation .horaire {{ color: var(--formation); font-weight: 700; font-size: 12.5px; }}
+  .pied {{ display: flex; justify-content: space-between; align-items: flex-start; margin-top: 22px; gap: 30px; }}
+  .legende {{ display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center; }}
+  .legende-item {{ display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: #5A4A3A; }}
+  .puce {{ width: 16px; height: 16px; border-radius: 3px; flex-shrink: 0; border: 1px solid rgba(0,0,0,0.08); }}
+  .puce.travail {{ background: var(--terracotta); }}
+  .puce.repos-p {{ background: repeating-linear-gradient(135deg, #F1ECE4, #F1ECE4 4px, #E4DBCC 4px, #E4DBCC 8px); }}
+  .puce.maladie-p {{ background: #F7E9E7; border-color: var(--maladie); }}
+  .puce.pose-p {{ background: #F7EFDC; border-color: var(--pose); }}
+  .zone-notes {{ flex-shrink: 0; width: 300px; border: 1.5px solid var(--ligne); border-radius: 4px; padding: 10px 14px; }}
+  .zone-notes .titre-notes {{ font-size: 11.5px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.04em; color: var(--terracotta-dark); margin-bottom: 6px; }}
+  .zone-notes .ligne-notes {{ border-bottom: 1px solid #E4DBCC; height: 18px; }}
+  @media print {{
+    body {{ background: white; padding: 0; }}
+    .bouton-imprimer {{ display: none; }}
+    .feuille {{ box-shadow: none; width: auto; min-height: auto; }}
+  }}
+</style>
+</head>
+<body>
+  <button class="bouton-imprimer" onclick="window.print()">🖨️ Imprimer cette page</button>
+  <div class="feuille">
+    <div class="entete">
+      <div class="entete-gauche">
+        <svg width="52" height="52" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="50" cy="50" r="48" fill="#FDE8DC" stroke="#C97F3B" stroke-width="2"/>
+          <g transform="translate(50,50)">
+            <path d="M0,-30 C12,-22 12,-8 0,0 C-12,-8 -12,-22 0,-30 Z" fill="#C97F3B"/>
+            <path d="M0,-30 C12,-22 12,-8 0,0 C-12,-8 -12,-22 0,-30 Z" fill="#8C5220" transform="rotate(72)"/>
+            <path d="M0,-30 C12,-22 12,-8 0,0 C-12,-8 -12,-22 0,-30 Z" fill="#C97F3B" transform="rotate(144)"/>
+            <path d="M0,-30 C12,-22 12,-8 0,0 C-12,-8 -12,-22 0,-30 Z" fill="#8C5220" transform="rotate(216)"/>
+            <path d="M0,-30 C12,-22 12,-8 0,0 C-12,-8 -12,-22 0,-30 Z" fill="#C97F3B" transform="rotate(288)"/>
+            <circle cx="0" cy="0" r="9" fill="#6F2100"/>
+          </g>
+        </svg>
+        <div>
+          <p class="titre-boutique">Amorino Besançon</p>
+          <p class="titre-semaine">Planning du {lundi.strftime('%d/%m/%Y')} au {dimanche.strftime('%d/%m/%Y')}</p>
+        </div>
+      </div>
+      <div class="case-maj">
+        Mis à jour le <span class="ligne-remplir">&nbsp;</span><br>
+        Par <span class="ligne-remplir">&nbsp;</span>
+        <div class="case-vu">Vérifié <div class="carre"></div></div>
+      </div>
+    </div>
+
+    <table class="planning">
+      <thead>
+        <tr>
+          <th class="col-salarie">Salarié</th>
+          {entetes_jours}
+          <th class="col-total">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {''.join(lignes_html) if lignes_html else '<tr><td colspan="9" style="padding:30px;text-align:center;color:#8A7A68;">Aucun créneau cette semaine</td></tr>'}
+      </tbody>
+    </table>
+
+    <div class="pied">
+      <div class="legende">
+        <div class="legende-item"><span class="puce travail"></span> Travail</div>
+        <div class="legende-item"><span class="puce repos-p"></span> Repos</div>
+        <div class="legende-item"><span class="puce maladie-p"></span> Maladie</div>
+        <div class="legende-item"><span class="puce pose-p"></span> Congé posé</div>
+      </div>
+      <div class="zone-notes">
+        <div class="titre-notes">Notes de la semaine</div>
+        <div class="ligne-notes"></div>
+        <div class="ligne-notes"></div>
+        <div class="ligne-notes"></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>"""
+
+
 # ============================== UI HELPERS ==============================
 
 def lundi_de_la_semaine(d: date) -> date:
@@ -678,7 +889,7 @@ def page_responsable():
 
     onglet = st.sidebar.radio(
         "Navigation",
-        ["Vue journée", "Vue semaine", "Ajouter un créneau", "Salariés", "Réglages effectifs", "Export"],
+        ["Vue semaine", "🖨️ Imprimer", "Vue journée", "Ajouter un créneau", "Salariés", "Réglages effectifs"],
     )
 
     if onglet == "Vue journée":
@@ -691,7 +902,7 @@ def page_responsable():
         page_salaries_admin()
     elif onglet == "Réglages effectifs":
         page_reglages_effectifs()
-    elif onglet == "Export":
+    elif onglet == "🖨️ Imprimer":
         page_export()
 
 
@@ -1020,16 +1231,35 @@ def page_reglages_effectifs():
 
 
 def page_export():
-    st.subheader("Export Excel de la semaine")
-    lundi = selecteur_semaine("export")
-    df = creneaux_semaine(lundi)
-    excel_bytes = export_excel(df, lundi)
-    st.download_button(
-        "📥 Télécharger le planning de la semaine (.xlsx)",
-        data=excel_bytes,
-        file_name=f"planning_{lundi.strftime('%Y%m%d')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    st.subheader("🖨️ Imprimer le planning de la semaine")
+    st.caption(
+        "Génère une feuille A4 prête à imprimer, en gros caractères, avec le repos "
+        "hachuré pour rester lisible même en noir et blanc. Une case en haut à droite "
+        "pour noter à la main la date de mise à jour, et une zone de notes libres en bas."
     )
+    lundi = selecteur_semaine("export")
+    html_impression = generer_html_impression(lundi)
+
+    st.markdown("**Aperçu** (le bouton \"Imprimer cette page\" fonctionne aussi ici)")
+    import streamlit.components.v1 as components
+    components.html(html_impression, height=750, scrolling=True)
+
+    st.download_button(
+        "📥 Télécharger cette feuille (à ouvrir puis imprimer, ou à envoyer par mail/SMS)",
+        data=html_impression,
+        file_name=f"planning_{lundi.strftime('%Y%m%d')}.html",
+        mime="text/html",
+    )
+
+    with st.expander("Besoin du fichier Excel brut (pour un usage annexe) ?"):
+        df = creneaux_semaine(lundi)
+        excel_bytes = export_excel(df, lundi)
+        st.download_button(
+            "📥 Télécharger le planning de la semaine (.xlsx)",
+            data=excel_bytes,
+            file_name=f"planning_{lundi.strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
 
 # ============================== POINT D'ENTREE ==============================

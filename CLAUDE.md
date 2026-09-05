@@ -4,6 +4,30 @@ Application Streamlit qui remplace le fichier Excel de planning de la boutique
 Amorino Besançon (BU indépendante du contexte pro habituel de Kénim chez
 Kubota, ce projet est un service pour l'équipe du point de vente).
 
+## Contexte utilisateur important (pour orienter les décisions de design)
+
+La gérante de la boutique qui utilise cette app au quotidien est "à l'ancienne" :
+elle a l'habitude d'imprimer le planning Excel, de l'annoter à la main au stylo,
+et les employés le prennent en photo sur le mur de la boutique. L'app ne doit
+PAS partir du principe que tout se passe à l'écran. Priorités de design qui en
+découlent :
+- Toute vue destinée à la gérante doit avoir un chemin simple, gros boutons,
+  peu de jargon.
+- La fonctionnalité d'impression (`generer_html_impression()` dans `app.py`,
+  onglet "🖨️ Imprimer") n'est pas une fonctionnalité secondaire, c'est un
+  besoin central. Elle génère une feuille A4 autonome, gros caractères, avec
+  le repos en hachures (pas juste une couleur) pour rester lisible même
+  imprimée en noir et blanc, une case "Mis à jour le / Par / Vérifié" pour
+  son geste naturel d'annotation manuscrite, et une zone "Notes de la semaine"
+  libre. Ne jamais retirer cette option au profit d'un flux 100% numérique.
+- Les employés doivent pouvoir consulter leur planning sur téléphone (vue
+  salarié en cartes empilées, déjà pensée mobile). Vérifier que ça reste vrai
+  après toute modification de `page_salarie()`.
+- La vue journée avec calendrier drag & drop (`streamlit-calendar`) reste
+  disponible pour qui est à l'aise avec, mais ne doit jamais être le SEUL
+  moyen de modifier le planning : "Ajouter un créneau" (formulaire simple) et
+  l'impression doivent toujours fonctionner indépendamment.
+
 ## Démarrer
 
 ```bash
@@ -13,8 +37,10 @@ streamlit run app.py
 
 `planning.db` est déjà rempli avec l'historique migré depuis
 `PLANNING_AMORINO_BESANCON.xlsx` (5 semaines datées : 29/06, 20/07, 27/07,
-03/08, 10/08/2026). Mot de passe responsable par défaut : `amorino2026`
-(voir `DEFAULT_RESPONSABLE_PASSWORD` dans `app.py`).
+03/08, 10/08/2026, avec les employés à jour : Anae, Celine, Cloe, Jeremy,
+Lilou N, Lilou RB, Louise, Lucas, Malika, Noah, Romane, Sinem, Suze). Mot de
+passe responsable par défaut : `amorino2026` (voir
+`DEFAULT_RESPONSABLE_PASSWORD` dans `app.py`).
 
 ## Comment vérifier visuellement pendant le développement
 
@@ -97,6 +123,47 @@ Même après le correctif ci-dessus, **SUZE fait 60,5h sur la semaine du
 consécutifs de 9 à 11h30 sans repos visible). C'est ce qui est vraiment écrit
 dans le fichier d'origine, ce n'est pas un artefact de migration. À signaler
 à l'utilisateur, ne pas "corriger" silencieusement une donnée réelle.
+
+## Fonctionnalité d'impression (ajoutée en réponse au besoin de la gérante)
+
+`generer_html_impression(lundi)` dans `app.py` construit une page HTML
+autonome (CSS inline, aucune dépendance externe sauf les polices Google Fonts
+Fraunces/Inter chargées en ligne) pour une semaine donnée : reprend le design
+validé avec l'utilisateur (voir `maquette_planning_papier.html` dans les
+outputs de la conversation, si accessible, sinon le design est entièrement
+dans la fonction elle-même). Un bouton "Imprimer cette page" intégré
+déclenche `window.print()`, masqué à l'impression via `@media print`.
+
+Utilisée dans `page_export()` (onglet "🖨️ Imprimer") de deux façons :
+1. Aperçu direct dans l'app via `streamlit.components.v1.html(...)`.
+2. Téléchargement du fichier `.html` autonome, ouvrable et imprimable
+   n'importe où, y compris sans l'app (utile si la gérante reçoit juste ce
+   fichier par SMS/mail sans jamais ouvrir l'app elle-même).
+
+Le nom et le prénom des salariés sont mis en forme via `.title()` (SUZE ->
+Suze) uniquement dans cette vue imprimable, pour un rendu plus soigné qu'en
+majuscules. Si tu ajoutes un salarié avec un nom composé, vérifier que
+`.title()` le rend correctement (ex: "lilou rb" -> "Lilou Rb", pas idéal,
+mais pas bloquant).
+
+## Nouvelles feuilles Excel rencontrées lors de la dernière migration
+
+Le fichier source a évolué depuis la première migration : deux nouvelles
+feuilles `Feuil3` et `Feuil4` sont apparues, avec la même structure que les
+gabarits vides `Feuil1/5/6` déjà exclus (mêmes 6 employés en dur, mêmes
+valeurs de créneaux identiques colonne par colonne, aucune date). Elles n'ont
+PAS été ajoutées à `FEUILLES_EXCLUES` dans `migrate_from_excel.py` (donc pas
+listées dans le résumé de fin de script), mais elles ne sont pas non plus
+dans `FEUILLES_TYPE_A`/`FEUILLES_TYPE_B` donc elles ne sont de toute façon
+pas importées. Si l'utilisateur confirme qu'une future feuille de ce type
+correspond à une vraie semaine, il faudra soit lui donner une date (nom de
+feuille ou cellule "Semaine du"), soit demander la date directement.
+
+De nouveaux salariés sont apparus dans les semaines plus récentes : NOAH,
+MALIKA, et LILOU a été scindée en deux personnes distinctes LILOU RB et
+LILOU N (l'ancien nom générique "LILOU" reste dans les semaines plus
+anciennes où la distinction n'existait pas encore, c'est normal, ce sont des
+snapshots historiques).
 
 ## Ce qui reste à vérifier / améliorer (pistes pour la suite)
 
